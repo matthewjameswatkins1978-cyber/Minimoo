@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS agents(
 CREATE TABLE IF NOT EXISTS audit(
   seq INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, actor TEXT NOT NULL,
   action TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS eval_feedback(
+  id TEXT PRIMARY KEY, ts REAL NOT NULL, mission_id TEXT NOT NULL DEFAULT '',
+  capability TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL DEFAULT '');
 """
 
 def now() -> float:
@@ -281,3 +285,25 @@ class Store:
 
     def list_agents(self) -> list[dict]:
         return [dict(r) for r in self.cx.execute("SELECT * FROM agents ORDER BY name").fetchall()]
+
+    # -- lightweight learning log (MIN-002 §10: no training, just evidence) --
+    def log_feedback(self, capability: str, kind: str, detail: str,
+                     mission_id: str = "", by: str = "") -> dict:
+        if kind not in {"decision", "correction", "failure", "approval", "outcome"}:
+            raise ValueError(f"bad feedback kind {kind!r}")
+        fid = new_id("FB")
+        self.cx.execute(
+            "INSERT INTO eval_feedback(id,ts,mission_id,capability,kind,detail,by)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (fid, now(), mission_id, capability, kind, detail[:2000], by))
+        self.audit(by or "minimoo", f"feedback.{kind}", fid, detail[:200])
+        return dict(self.cx.execute("SELECT * FROM eval_feedback WHERE id=?", (fid,)).fetchone())
+
+    def list_feedback(self, capability: str = "", limit: int = 100) -> list[dict]:
+        if capability:
+            rows = self.cx.execute("SELECT * FROM eval_feedback WHERE capability=? "
+                                   "ORDER BY ts DESC LIMIT ?", (capability, limit)).fetchall()
+        else:
+            rows = self.cx.execute("SELECT * FROM eval_feedback ORDER BY ts DESC LIMIT ?",
+                                   (limit,)).fetchall()
+        return [dict(r) for r in rows]

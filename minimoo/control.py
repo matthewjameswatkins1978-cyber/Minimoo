@@ -32,7 +32,61 @@ JOB_TOOL = {
 class PolicyDenied(Exception):
     pass
 
+# Scoped capability controls (MIN-002). Each model-dependent capability has
+# its own opt-in flag, default off. The old global MINIMOO_MODEL_JOBS=1 remains
+# as a master override for lab evaluation only; it never enables anything the
+# scoped flag leaves off in production paths (CLI dashboard jobs require both
+# the scoped flag AND human review for writes).
+# Scoped capability controls (MIN-002). Each model-dependent capability has
+# its own opt-in flag, default off. The old global MINIMOO_MODEL_JOBS=1 remains
+# as a master override for lab evaluation only; it never enables anything the
+# scoped flag leaves off in production paths (CLI dashboard jobs require both
+# the scoped flag AND human review for writes).
 MODEL_JOBS_ENABLED = os.environ.get("MINIMOO_MODEL_JOBS", "0") == "1"
+CAP_FLAGS = {
+    "knowledge-librarian": "MINIMOO_CAP_LIBRARIAN",
+    "compute-steward": "MINIMOO_CAP_STEWARD",
+    "briefing": "MINIMOO_CAP_BRIEFING",
+    "log-classifier": "MINIMOO_CAP_LOG_CLASSIFIER",
+    "secretary-draft": "MINIMOO_CAP_SECRETARY_DRAFT",
+    "receipt-draft": "MINIMOO_CAP_RECEIPT_DRAFT",
+}
+
+JOB_TOOL["secretary-draft"] = {"tools": ["briefing.write"], "kind": "model"}
+JOB_TOOL["receipt-draft"] = {"tools": ["briefing.write"], "kind": "model"}
+
+
+def cap_enabled(capability: str) -> bool:
+    """Scoped check: model capabilities need their own flag (or lab master)."""
+    spec = JOB_TOOL.get(capability)
+    if spec is None or spec.get("kind") != "model":
+        return True  # deterministic capabilities are not gated here
+    flag = CAP_FLAGS.get(capability)
+    if flag and os.environ.get(flag, "0") == "1":
+        return True
+    return MODEL_JOBS_ENABLED
+CAP_FLAGS = {
+    "knowledge-librarian": "MINIMOO_CAP_LIBRARIAN",
+    "compute-steward": "MINIMOO_CAP_STEWARD",
+    "briefing": "MINIMOO_CAP_BRIEFING",
+    "log-classifier": "MINIMOO_CAP_LOG_CLASSIFIER",
+    "secretary-draft": "MINIMOO_CAP_SECRETARY_DRAFT",
+    "receipt-draft": "MINIMOO_CAP_RECEIPT_DRAFT",
+}
+
+JOB_TOOL["secretary-draft"] = {"tools": ["briefing.write"], "kind": "model"}
+JOB_TOOL["receipt-draft"] = {"tools": ["briefing.write"], "kind": "model"}
+
+
+def cap_enabled(capability: str) -> bool:
+    """Scoped check: model capabilities need their own flag (or lab master)."""
+    spec = JOB_TOOL.get(capability)
+    if spec is None or spec.get("kind") != "model":
+        return True  # deterministic capabilities are not gated here
+    flag = CAP_FLAGS.get(capability)
+    if flag and os.environ.get(flag, "0") == "1":
+        return True
+    return MODEL_JOBS_ENABLED
 
 def check_tool_call(capability: str, tool: str, args: dict, project_root: str,
                     write_approved: bool = False) -> None:
@@ -40,10 +94,11 @@ def check_tool_call(capability: str, tool: str, args: dict, project_root: str,
     spec = JOB_TOOL.get(capability)
     if spec is None:
         raise PolicyDenied(f"unknown capability {capability!r} — abstain")
-    if spec.get("kind") == "model" and not MODEL_JOBS_ENABLED:
+    if spec.get("kind") == "model" and not cap_enabled(capability):
         raise PolicyDenied(
-            f"model job {capability!r} disabled: LFM3 routing measured 4/24 "
-            f"(11 false positives on must-abstain); deterministic spine only")
+            f"model job {capability!r} disabled by scoped flag "
+            f"({CAP_FLAGS.get(capability, 'no-flag')}=0): qualification MIN-002 "
+            f"shows no arm above enablement grade; deterministic spine only")
     allowed = set(spec["tools"]) | ({"repo.status"} if capability else set())
     if tool not in TOOL_ALLOW and tool not in WRITE_TOOLS:
         raise PolicyDenied(f"tool {tool!r} not in catalogue")

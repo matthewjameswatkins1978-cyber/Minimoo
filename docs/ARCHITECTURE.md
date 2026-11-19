@@ -26,3 +26,15 @@ minimoo/
 ## State machine
 
 `PENDING → CLAIMED → ACTIVE → REVIEW → ACCEPTED → DONE`, with `BLOCKED/FAILED/ESCALATED/CANCELLED` escapes. Illegal transitions refused. Packets: `STORED → RETRIEVED → ACKNOWLEDGED → ACCEPTED/EXECUTED`. Receipts require `{summary, output_ref, checks[]}` or are rejected — no auto-acceptance.
+
+## MIN-002 additions
+
+- `minimoo/chat.py`: chat-completions client for the corrected LFM3 harness
+  (official template via `--jinja`, Liquid sampling, reasoning separation,
+  XML tool-call fallback, template verification). Never executes model output.
+- Scoped capability flags (`control.cap_enabled`, `CAP_FLAGS`): each
+  model-dependent capability has its own opt-in env flag, default off.
+- `eval_feedback` table + `minimoo feedback[.log|-list]`: lightweight learning
+  log (decisions, corrections, failures, approvals, outcomes). No training infra.
+- Draft-only model jobs (`secretary-draft`, `receipt-draft`): model output is
+  watermarked UNREVIEWED and requires human review; writes need approval.
