@@ -4,6 +4,7 @@ Owns all state transitions. Never executes model-generated shell. Small
 schemas, finite choices, abstain on uncertainty, bounded retries.
 """
 from __future__ import annotations
+import os
 import re
 from .store import Store
 
@@ -31,12 +32,18 @@ JOB_TOOL = {
 class PolicyDenied(Exception):
     pass
 
+MODEL_JOBS_ENABLED = os.environ.get("MINIMOO_MODEL_JOBS", "0") == "1"
+
 def check_tool_call(capability: str, tool: str, args: dict, project_root: str,
                     write_approved: bool = False) -> None:
     """Fail-closed tool gate: allowlisted tools, validated args, root containment."""
     spec = JOB_TOOL.get(capability)
     if spec is None:
         raise PolicyDenied(f"unknown capability {capability!r} — abstain")
+    if spec.get("kind") == "model" and not MODEL_JOBS_ENABLED:
+        raise PolicyDenied(
+            f"model job {capability!r} disabled: LFM3 routing measured 4/24 "
+            f"(11 false positives on must-abstain); deterministic spine only")
     allowed = set(spec["tools"]) | ({"repo.status"} if capability else set())
     if tool not in TOOL_ALLOW and tool not in WRITE_TOOLS:
         raise PolicyDenied(f"tool {tool!r} not in catalogue")
