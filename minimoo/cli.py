@@ -8,7 +8,7 @@ import sys
 from .config import MinimooConfig
 from .store import Store
 from .inference import InferenceAdapter
-from .control import route_mission, check_tool_call
+from .control import route_mission, check_tool_call, cap_enabled
 from .jobs_catalog import CATALOGUE
 from .bridge import envelope, append_message, outbox_checksum
 
@@ -44,6 +44,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("gpu-start")
     p = sub.add_parser("dashboard")
     sub.add_parser("catalogue")
+    p = sub.add_parser("feedback"); p.add_argument("--cap", required=True)
+    p.add_argument("--kind", required=True,
+                   choices=["decision", "correction", "failure", "approval", "outcome"])
+    p.add_argument("--detail", required=True); p.add_argument("--mission", default="")
+    p.add_argument("--by", default="")
+    p = sub.add_parser("feedback-list"); p.add_argument("--cap", default="")
+    p = sub.add_parser("briefing-draft"); p.add_argument("--out", default="")
     p = sub.add_parser("packet"); p.add_argument("--mission", required=True)
     p.add_argument("--kind", required=True); p.add_argument("--from", dest="frm", required=True)
     p.add_argument("--to", required=True); p.add_argument("--body", default="")
@@ -91,6 +98,42 @@ def main(argv=None) -> int:
             httpd.serve_forever()
         elif a.cmd == "catalogue":
             print(json.dumps(CATALOGUE, indent=2))
+        elif a.cmd == "feedback":
+            print(json.dumps(store.log_feedback(a.cap, a.kind, a.detail,
+                                                mission_id=a.mission, by=a.by or "cli"),
+                             indent=2, default=str))
+        elif a.cmd == "feedback-list":
+            print(json.dumps(store.list_feedback(a.cap), indent=2, default=str))
+        elif a.cmd == "briefing-draft":
+            from .control import PolicyDenied
+            check_tool_call("secretary-draft", "briefing.write", {"path": "."},
+                            "F:/Projects/Minimoo", write_approved=True)
+            from .chat import ChatClient, ChatError
+            jobs = store.list_jobs(limit=50)
+            agents = store.list_agents()
+            snap = "\n".join(
+                f"- {j['id']} [{j['state']}] {j['mission_id']}: {(j['title'] or '')[:90]}"
+                for j in jobs) or "(no jobs)"
+            ag = ", ".join(f"{x['name']}({x['availability']})" for x in agents) or "(no agents)"
+            try:
+                cli = ChatClient()
+                r = cli.chat(
+                    [{"role": "system", "content": ("Draft a morning workshop briefing, "
+                      "max 120 words, facts only, no actions, no secrets. Plain text.")},
+                     {"role": "user", "content": f"Open jobs:\n{snap}\nAgents: {ag}"}],
+                    max_tokens=1024, thinking=False)
+                draft = r["answer"]
+            except ChatError as e:
+                print(json.dumps({"draft": None, "unreviewed": True,
+                                  "error": f"GPU model unavailable: {e}. "
+                                  "Deterministic snapshot follows.",
+                                  "snapshot": snap}, indent=2))
+                return 0
+            out = a.out or os.path.join(cfg.data_dir, "briefing-DRAFT.md")
+            with open(out, "w", encoding="utf-8") as f:
+                f.write("# Briefing DRAFT — UNREVIEWED, do not act on without human review\n\n" + draft + "\n")
+            print(json.dumps({"draft": out, "unreviewed": True,
+                              "words": len(draft.split())}, indent=2))
         elif a.cmd == "packet":
             pkt = store.add_packet(a.mission, a.kind, a.frm, a.to, a.body, job_id=a.job)
             print(json.dumps(pkt, indent=2, default=str))

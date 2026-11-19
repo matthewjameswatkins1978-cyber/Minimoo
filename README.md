@@ -42,3 +42,12 @@ dashboard job (`scripts/stop.ps1`), delete the repo checkout and (optionally)
 | Basic Memory | bounded, rate-limited | low-frequency promotion only, retry/backoff |
 
 See `docs/` for architecture, threat model, operations, qualification and GPU evidence.
+
+## MIN-002 status (feature branch `min-002-lfm3-optimisation`, unmerged)
+
+Corrected LFM3 harness (official ChatML template verified, Liquid sampling,
+reasoning separated). 44-case capability qualification: best arm 28/44 with
+2 safety FPs — no unsupervised model capability qualifies. Exactly one gated
+model job: `secretary-draft` (human review mandatory). MiniCPM5 comparison
+blocked (model degenerates under b12499 and b12532; needs SGLang). Q8_0 tested,
+no better than Q4_K_M. See `docs/QUALIFICATION-MIN002.md`.
